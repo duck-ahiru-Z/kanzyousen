@@ -16,15 +16,16 @@
         #game-container { position: relative; width: 100%; height: 100%; }
         canvas { display: block; width: 100%; height: 100%; }
 
+        /* UIレイヤーはタッチを透過し、必要な要素だけタッチ可能にする */
         #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none;
+            pointer-events: none; z-index: 10;
         }
 
         .screen {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             background: #fff; border: 4px solid #111; padding: 24px; text-align: center;
-            box-shadow: 8px 8px 0 #000; pointer-events: auto;
+            box-shadow: 8px 8px 0 #000; pointer-events: auto; /* ここはタッチ可能 */
             min-width: 320px; width: 90%; max-width: 450px; z-index: 100;
         }
 
@@ -52,7 +53,7 @@
         #hud {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             text-align: center; pointer-events: none; width: 80%;
-            background: transparent; z-index: 10;
+            background: transparent; z-index: 20;
         }
 
         #mission { font-size: 20px; font-weight: bold; color: #fff; margin-bottom: 5px; text-shadow: 2px 2px 0 #000; }
@@ -79,8 +80,10 @@
 <body>
 
 <div id="game-container">
+    <!-- ゲーム画面 -->
     <canvas id="gameCanvas"></canvas>
     
+    <!-- UI画面 -->
     <div id="ui-layer">
         <button id="btn-hint" class="hidden">💡ヒント</button>
 
@@ -129,7 +132,7 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    // UI要素
+    // UI要素の取得
     const startScreen = document.getElementById('start-screen');
     const resultScreen = document.getElementById('result-screen');
     const hintModal = document.getElementById('hint-modal');
@@ -145,6 +148,7 @@
     let width, height, cx, cy, r;
     let dpr = window.devicePixelRatio || 1;
 
+    // 画面リサイズ対応
     function resize() {
         width = window.innerWidth;
         height = window.innerHeight;
@@ -190,8 +194,8 @@
     ];
 
     let currentMission = null;
-    let wrongDestination = null; // 間違えて飛んだ先
-    let gameState = 0; // 0: UI操作中, 1: 待機, 2: 走行, 3: 飛行(成功/失敗), 4: 脱線爆発
+    let wrongDestination = null;
+    let gameState = 0; // 0: UI操作中, 1: 待機, 2: 走行, 3: 飛行, 4: 脱線爆発
     let angle = 0;
     let baseOmega = (2 * Math.PI) / 120;
     let currentOmega = baseOmega;
@@ -204,7 +208,7 @@
     let finalAccuracy = 0;
     let resultType = '';
 
-    // ボタンイベント
+    // === ボタンのクリックイベント ===
     document.getElementById('btn-start').addEventListener('click', () => {
         startScreen.classList.add('hidden');
         resetGame();
@@ -215,16 +219,14 @@
         resetGame();
     });
 
-    btnHint.addEventListener('click', (e) => {
-        e.stopPropagation(); // 長押し判定を防ぐ
+    btnHint.addEventListener('click', () => {
         hintModal.classList.remove('hidden');
-        gameState = 0; // 一時停止扱い
+        gameState = 0; // ゲームの進行をストップ
     });
 
-    document.getElementById('btn-close-hint').addEventListener('click', (e) => {
-        e.stopPropagation();
+    document.getElementById('btn-close-hint').addEventListener('click', () => {
         hintModal.classList.add('hidden');
-        if (hud.classList.contains('hidden') === false) {
+        if (!hud.classList.contains('hidden')) {
             gameState = 1; // 待機状態に戻す
         }
     });
@@ -249,14 +251,19 @@
         btnHint.classList.remove('hidden');
     }
 
+    // === ゲームの長押し・タッチイベント ===
     function handlePressStart(e) {
-        if (e.target.tagName === 'BUTTON' || !hintModal.classList.contains('hidden')) return;
+        // ボタンやUIパネルの上をタッチした場合は、電車の発車判定を無視する
+        if (e.target.closest('button')) return;
+        if (e.target.closest('.screen')) return; 
+        if (!hintModal.classList.contains('hidden')) return;
+
         if (gameState !== 1 && gameState !== 2) return;
         
         isPressing = true;
         if (gameState === 1) {
             gameState = 2;
-            btnHint.classList.add('hidden'); // 走行中はヒントを隠す
+            btnHint.classList.add('hidden'); // 走行中はヒントボタンを隠す
         }
     }
 
@@ -289,8 +296,6 @@
         }
         
         let normAngle = getNormalizedAngle(angle);
-        
-        // どの分岐駅で離したかを判定
         let matchedBranch = null;
         let minDiff = 999;
         
@@ -306,25 +311,21 @@
         flyAngle = drawAngle + Math.PI / 2; 
 
         if (matchedBranch) {
-            // いずれかの分岐駅で離した（ふっとばし確定）
             gameState = 3;
             let flySpeed = Math.max(width, height) / 25;
             trainVX = flySpeed * Math.cos(flyAngle);
             trainVY = flySpeed * Math.sin(flyAngle);
             
             if (matchedBranch.id === currentMission.id) {
-                // 正解の分岐駅
                 resultType = 'SUCCESS';
                 finalAccuracy = Math.floor((1 - (minDiff / matchedBranch.margin)) * 100);
             } else {
-                // 違う分岐駅
                 resultType = 'WRONG_DESTINATION';
                 wrongDestination = matchedBranch;
             }
             
             setTimeout(() => { showResult(resultType); }, 1500);
         } else {
-            // どの分岐駅でもない（脱線）
             gameState = 4;
             createExplosion(trainX, trainY);
             setTimeout(() => { showResult('DERAIL'); }, 1500);
@@ -364,8 +365,7 @@
                 resultDesc.innerText = "そこは他の路線と繋がっていない！\n単なるカーブで飛んでいくな！";
                 break;
             case 'WRONG_DESTINATION':
-                resultTitle.innerText = "行き先間違い！"; resultTitle.style.color = "#0056b3"; // 青系
-                // ここで具体的な飛ばされ先（failDest）を表示
+                resultTitle.innerText = "行き先間違い！"; resultTitle.style.color = "#0056b3";
                 resultDesc.innerHTML = `ミッション失敗！<br><br><span style="color:#dc3545; font-size:18px;"><b>「${wrongDestination.failDest}」</b></span><br><br>へ飛ばされてしまった！<br>離す駅は「${wrongDestination.station}」じゃないぞ！`;
                 break;
             case 'SUCCESS':
@@ -535,4 +535,5 @@
                 ctx.globalAlpha = p.life;
                 ctx.fillRect(p.x, p.y, 6, 6);
             });
-            ctx.globalAlpha
+            ctx.globalAlpha = 1.0;
+      
