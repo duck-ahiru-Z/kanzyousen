@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>大阪環状線ふっとばしゲーム</title>
+    <style>
+        * { box-sizing: border-box; }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+            background-color: #1a1a1a; 
+            font-family: 'MS Gothic', 'Meiryo', sans-serif;
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+
+        #game-container { position: relative; width: 100%; height: 100%; }
+        canvas { display: block; width: 100%; height: 100%; }
+
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+        }
+
+        .screen {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: #fff; border: 4px solid #111; padding: 24px; text-align: center;
+            box-shadow: 8px 8px 0 #000; pointer-events: auto;
+            min-width: 320px; width: 90%; max-width: 450px; z-index: 100;
+        }
+
+        .hidden { display: none !important; }
+
+        h1 {
+            font-size: 26px; margin-top: 0; color: #FF7E00;
+            text-shadow: 2px 2px 0 #111; -webkit-text-stroke: 1px #111;
+            letter-spacing: 2px; line-height: 1.4;
+        }
+
+        h2 { font-size: 22px; margin: 0 0 10px 0; color: #111; border-bottom: 2px solid #111; padding-bottom: 5px; }
+        p { font-size: 14px; line-height: 1.6; color: #222; font-weight: bold; margin-bottom: 20px; }
+
+        button {
+            background: #FF7E00; color: #111; border: 3px solid #111; padding: 12px 24px;
+            font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 4px 4px 0 #111;
+            transition: transform 0.1s, box-shadow 0.1s; border-radius: 0; width: 100%; font-family: inherit;
+        }
+        button:active { transform: translate(4px, 4px); box-shadow: 0px 0px 0 #111; }
+        
+        button.btn-gray { background: #ccc; margin-top: 10px; font-size: 16px; padding: 10px 20px; }
+
+        /* HUD: 画面中央（円の中） */
+        #hud {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; pointer-events: none; width: 80%;
+            background: transparent; z-index: 10;
+        }
+
+        #mission { font-size: 20px; font-weight: bold; color: #fff; margin-bottom: 5px; text-shadow: 2px 2px 0 #000; }
+        #target-dest { color: #dc3545; font-size: 24px; display: block; margin-top: 5px; text-shadow: 2px 2px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff; line-height: 1.2;}
+        #instruction { font-size: 18px; font-weight: bold; color: #fff; text-shadow: 1px 1px 0 #000; margin-top: 15px;}
+        #lap-info { font-size: 16px; font-weight: bold; color: #FF7E00; margin-top: 5px; text-shadow: 1px 1px 0 #000;}
+
+        .score-box {
+            background: #111; color: #FF7E00; padding: 10px; font-size: 20px;
+            margin-bottom: 20px; border: 2px solid #FF7E00;
+        }
+
+        /* ヒントボタンとモーダル */
+        #btn-hint {
+            position: absolute; top: 15px; right: 15px; width: auto; padding: 8px 16px;
+            font-size: 16px; pointer-events: auto; z-index: 50; background: #fff; color: #111;
+        }
+        #hint-modal table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        #hint-modal th, #hint-modal td { border: 2px solid #111; padding: 8px; font-size: 14px; font-weight: bold; }
+        #hint-modal th { background: #FF7E00; color: #111; }
+        #hint-modal td:first-child { text-align: left; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui-layer">
+        <button id="btn-hint" class="hidden">💡ヒント</button>
+
+        <div id="hud" class="hidden">
+            <div id="mission">目的地:<br><span id="target-dest">???</span></div>
+            <div id="instruction">画面を長押しして出発！</div>
+            <div id="lap-info">停車中 (天王寺)</div>
+        </div>
+
+        <div id="start-screen" class="screen">
+            <h1>大阪環状線<br>ふっとばしゲーム</h1>
+            <p style="text-align: left;">
+                【ルール】<br>
+                1. 画面長押しで発車。だんだん加速！<br>
+                2. 中央に出る「目的地」に行ける駅の近くで指を離してふっとばされろ！<br>
+                3. 違う分岐駅で離すと<b>別の場所に飛ばされる</b>ぞ。<br>
+                4. 何もない駅で離すと<b>脱線</b>だ！<br>
+                5. 最低1周は回ること。2周でゲームオーバー。
+            </p>
+            <button id="btn-start">乗車する</button>
+        </div>
+
+        <div id="result-screen" class="screen hidden">
+            <h2 id="result-title">結果</h2>
+            <p id="result-desc">説明文</p>
+            <div id="result-score" class="score-box hidden">タイミング精度: 0%</div>
+            <button id="btn-retry">次のミッションへ</button>
+        </div>
+
+        <div id="hint-modal" class="screen hidden">
+            <h2>路線図ヒント</h2>
+            <p>目的の方面に行くには、以下の駅の近くで指を離せ！</p>
+            <table>
+                <tr><th>目的地 (方面)</th><th>離す駅</th></tr>
+                <tr><td>USJ・桜島方面</td><td>西九条 (左)</td></tr>
+                <tr><td>京都・神戸方面</td><td>大阪 (上)</td></tr>
+                <tr><td>京阪・学研都市線</td><td>京橋 (右斜め上)</td></tr>
+                <tr><td>奈良・関空方面</td><td>天王寺 (下)</td></tr>
+            </table>
+            <button id="btn-close-hint" class="btn-gray">閉じる</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI要素
+    const startScreen = document.getElementById('start-screen');
+    const resultScreen = document.getElementById('result-screen');
+    const hintModal = document.getElementById('hint-modal');
+    const hud = document.getElementById('hud');
+    const instructionEl = document.getElementById('instruction');
+    const lapInfoEl = document.getElementById('lap-info');
+    const missionEl = document.getElementById('target-dest');
+    const resultTitle = document.getElementById('result-title');
+    const resultDesc = document.getElementById('result-desc');
+    const resultScore = document.getElementById('result-score');
+    const btnHint = document.getElementById('btn-hint');
+
+    let width, height, cx, cy, r;
+    let dpr = window.devicePixelRatio || 1;
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        ctx.scale(dpr, dpr);
+        cx = width / 2;
+        cy = height / 2;
+        r = Math.min(width, height) * 0.30; 
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // 駅データ (angle: 0.0=下, 0.5=左, 1.0=上, 1.5=右)
+    const stations = [
+        { name: "天王寺", angle: 0.00, major: true },
+        { name: "新今宮", angle: 0.08, major: false },
+        { name: "今宮", angle: 0.14, major: false },
+        { name: "芦原橋", angle: 0.21, major: false },
+        { name: "大正", angle: 0.29, major: false },
+        { name: "弁天町", angle: 0.38, major: true },
+        { name: "西九条", angle: 0.50, major: true },
+        { name: "野田", angle: 0.62, major: false },
+        { name: "福島", angle: 0.75, major: false },
+        { name: "大阪", angle: 1.00, major: true },
+        { name: "天満", angle: 1.15, major: false },
+        { name: "桜ノ宮", angle: 1.25, major: false },
+        { name: "京橋", angle: 1.40, major: true },
+        { name: "大阪城公園", angle: 1.50, major: false },
+        { name: "森ノ宮", angle: 1.60, major: true },
+        { name: "玉造", angle: 1.70, major: false },
+        { name: "鶴橋", angle: 1.80, major: true },
+        { name: "桃谷", angle: 1.88, major: false },
+        { name: "寺田町", angle: 1.94, major: false }
+    ];
+
+    // 分岐ポイントと、間違えた時の具体的な飛ばされ先（failDest）
+    const branches = [
+        { id: 'USJ', name: 'USJ・桜島方面', failDest: 'ユニバーサルシティ駅(USJ)', station: '西九条', targetAngle: 0.50, margin: 0.08 },
+        { id: 'KYOTO', name: '京都・神戸方面', failDest: '京都・敦賀・はたまた播州赤穂', station: '大阪', targetAngle: 1.00, margin: 0.08 },
+        { id: 'KYOBASHI', name: '京阪・学研都市線', failDest: 'ひらかたパーク・同志社前', station: '京橋', targetAngle: 1.40, margin: 0.08 },
+        { id: 'NARA', name: '奈良・関空方面', failDest: '関西空港・和歌山・加茂', station: '天王寺', targetAngle: 0.00, margin: 0.10 }
+    ];
+
+    let currentMission = null;
+    let wrongDestination = null; // 間違えて飛んだ先
+    let gameState = 0; // 0: UI操作中, 1: 待機, 2: 走行, 3: 飛行(成功/失敗), 4: 脱線爆発
+    let angle = 0;
+    let baseOmega = (2 * Math.PI) / 120;
+    let currentOmega = baseOmega;
+    let trainX = 0, trainY = 0;
+    let trainVX = 0, trainVY = 0;
+    let flyAngle = 0;
+    let trail = [];
+    let isPressing = false;
+    let particles = [];
+    let finalAccuracy = 0;
+    let resultType = '';
+
+    // ボタンイベント
+    document.getElementById('btn-start').addEventListener('click', () => {
+        startScreen.classList.add('hidden');
+        resetGame();
+    });
+
+    document.getElementById('btn-retry').addEventListener('click', () => {
+        resultScreen.classList.add('hidden');
+        resetGame();
+    });
+
+    btnHint.addEventListener('click', (e) => {
+        e.stopPropagation(); // 長押し判定を防ぐ
+        hintModal.classList.remove('hidden');
+        gameState = 0; // 一時停止扱い
+    });
+
+    document.getElementById('btn-close-hint').addEventListener('click', (e) => {
+        e.stopPropagation();
+        hintModal.classList.add('hidden');
+        if (hud.classList.contains('hidden') === false) {
+            gameState = 1; // 待機状態に戻す
+        }
+    });
+
+    function getRandomMission() {
+        return branches[Math.floor(Math.random() * branches.length)];
+    }
+
+    function resetGame() {
+        currentMission = getRandomMission();
+        missionEl.innerText = currentMission.name;
+        
+        gameState = 1;
+        angle = 0;
+        currentOmega = baseOmega;
+        trail = [];
+        particles = [];
+        wrongDestination = null;
+        updateHUD();
+        
+        hud.classList.remove('hidden');
+        btnHint.classList.remove('hidden');
+    }
+
+    function handlePressStart(e) {
+        if (e.target.tagName === 'BUTTON' || !hintModal.classList.contains('hidden')) return;
+        if (gameState !== 1 && gameState !== 2) return;
+        
+        isPressing = true;
+        if (gameState === 1) {
+            gameState = 2;
+            btnHint.classList.add('hidden'); // 走行中はヒントを隠す
+        }
+    }
+
+    function handlePressEnd(e) {
+        if (!isPressing) return;
+        isPressing = false;
+        if (gameState === 2) releaseTrain();
+    }
+
+    window.addEventListener('mousedown', handlePressStart);
+    window.addEventListener('touchstart', handlePressStart, {passive: false});
+    window.addEventListener('mouseup', handlePressEnd);
+    window.addEventListener('touchend', handlePressEnd);
+
+    function getNormalizedAngle(rad) {
+        let a = (rad / Math.PI) % 2;
+        if (a < 0) a += 2;
+        return a;
+    }
+
+    function getAngleDiff(a1, a2) {
+        let diff = Math.abs(a1 - a2);
+        return diff > 1.0 ? 2.0 - diff : diff;
+    }
+
+    function releaseTrain() {
+        if (angle < 2 * Math.PI) {
+            showResult('TOO_EARLY');
+            return;
+        }
+        
+        let normAngle = getNormalizedAngle(angle);
+        
+        // どの分岐駅で離したかを判定
+        let matchedBranch = null;
+        let minDiff = 999;
+        
+        for (let branch of branches) {
+            let diff = getAngleDiff(normAngle, branch.targetAngle);
+            if (diff <= branch.margin && diff < minDiff) {
+                minDiff = diff;
+                matchedBranch = branch;
+            }
+        }
+
+        let drawAngle = angle + Math.PI / 2;
+        flyAngle = drawAngle + Math.PI / 2; 
+
+        if (matchedBranch) {
+            // いずれかの分岐駅で離した（ふっとばし確定）
+            gameState = 3;
+            let flySpeed = Math.max(width, height) / 25;
+            trainVX = flySpeed * Math.cos(flyAngle);
+            trainVY = flySpeed * Math.sin(flyAngle);
+            
+            if (matchedBranch.id === currentMission.id) {
+                // 正解の分岐駅
+                resultType = 'SUCCESS';
+                finalAccuracy = Math.floor((1 - (minDiff / matchedBranch.margin)) * 100);
+            } else {
+                // 違う分岐駅
+                resultType = 'WRONG_DESTINATION';
+                wrongDestination = matchedBranch;
+            }
+            
+            setTimeout(() => { showResult(resultType); }, 1500);
+        } else {
+            // どの分岐駅でもない（脱線）
+            gameState = 4;
+            createExplosion(trainX, trainY);
+            setTimeout(() => { showResult('DERAIL'); }, 1500);
+        }
+    }
+
+    function createExplosion(x, y) {
+        for(let i=0; i<40; i++) {
+            particles.push({
+                x: x, y: y,
+                vx: (Math.random() - 0.5) * 18,
+                vy: (Math.random() - 0.5) * 18,
+                life: 1.0,
+                color: Math.random() > 0.5 ? '#FF7E00' : '#fff'
+            });
+        }
+    }
+
+    function showResult(type) {
+        if(gameState === 0 && !hintModal.classList.contains('hidden')) return;
+        gameState = 0;
+        hud.classList.add('hidden');
+        btnHint.classList.add('hidden');
+        resultScore.classList.add('hidden');
+        
+        switch(type) {
+            case 'TOO_EARLY':
+                resultTitle.innerText = "環状不足！"; resultTitle.style.color = "#111";
+                resultDesc.innerText = "最低1周は回るのがルールだ！\n天王寺を過ぎるまで我慢！";
+                break;
+            case 'TOO_LATE':
+                resultTitle.innerText = "環状しすぎ！"; resultTitle.style.color = "#dc3545";
+                resultDesc.innerText = "2周目に突入してしまった！\n目が回って運転不能！";
+                break;
+            case 'DERAIL':
+                resultTitle.innerText = "脱線事故！"; resultTitle.style.color = "#dc3545";
+                resultDesc.innerText = "そこは他の路線と繋がっていない！\n単なるカーブで飛んでいくな！";
+                break;
+            case 'WRONG_DESTINATION':
+                resultTitle.innerText = "行き先間違い！"; resultTitle.style.color = "#0056b3"; // 青系
+                // ここで具体的な飛ばされ先（failDest）を表示
+                resultDesc.innerHTML = `ミッション失敗！<br><br><span style="color:#dc3545; font-size:18px;"><b>「${wrongDestination.failDest}」</b></span><br><br>へ飛ばされてしまった！<br>離す駅は「${wrongDestination.station}」じゃないぞ！`;
+                break;
+            case 'SUCCESS':
+                resultTitle.innerText = "ミッションクリア！"; resultTitle.style.color = "#28a745";
+                resultDesc.innerHTML = `<b>${currentMission.name}</b>へ<br>見事にふっとばされました！`;
+                resultScore.innerText = `タイミング精度: ${finalAccuracy}%`;
+                resultScore.classList.remove('hidden');
+                break;
+        }
+        resultScreen.classList.remove('hidden');
+    }
+
+    function updateHUD() {
+        if (gameState === 1) {
+            instructionEl.innerText = "画面長押しで発車！";
+            instructionEl.style.color = "#fff";
+            lapInfoEl.innerText = "停車中 (天王寺)";
+        } else if (gameState === 2) {
+            if (angle < 2 * Math.PI) {
+                instructionEl.innerText = "まだ離すな！(1周せよ)";
+                instructionEl.style.color = "#dc3545";
+                lapInfoEl.innerText = "1周目 走行中...";
+            } else {
+                instructionEl.innerText = "目的駅で離せ！";
+                instructionEl.style.color = "#28a745";
+                lapInfoEl.innerText = "2周目突入！狙いを定めろ！";
+            }
+        }
+    }
+
+    function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    function update() {
+        if (gameState === 2) {
+            currentOmega += 0.0003; 
+            angle += currentOmega;
+            updateHUD();
+            
+            if (angle >= 4 * Math.PI) {
+                showResult('TOO_LATE');
+            }
+        } else if (gameState === 3) {
+            trainX += trainVX;
+            trainY += trainVY;
+            trail.push({x: trainX, y: trainY});
+            if(trail.length > 25) trail.shift();
+        } else if (gameState === 4) {
+            particles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= 0.02;
+            });
+            particles = particles.filter(p => p.life > 0);
+        }
+    }
+
+    function draw() {
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 12;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        if (gameState === 2) {
+            ctx.lineWidth = 8;
+            if (angle <= 2 * Math.PI) {
+                ctx.strokeStyle = '#dc3545';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r + 15, Math.PI / 2, Math.PI / 2 + angle);
+                ctx.stroke();
+            } else {
+                ctx.strokeStyle = '#28a745';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r + 15, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                ctx.strokeStyle = '#dc3545';
+                ctx.beginPath();
+                ctx.arc(cx, cy, r + 15, Math.PI / 2, Math.PI / 2 + (angle - 2 * Math.PI));
+                ctx.stroke();
+            }
+        }
+
+        stations.forEach(st => {
+            let a = st.angle * Math.PI + Math.PI / 2;
+            let sx = cx + r * Math.cos(a);
+            let sy = cy + r * Math.sin(a);
+
+            ctx.fillStyle = st.major ? '#FF7E00' : '#888';
+            ctx.beginPath();
+            ctx.arc(sx, sy, st.major ? 6 : 4, 0, Math.PI*2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = st.major ? 2 : 1;
+            ctx.stroke();
+
+            ctx.fillStyle = st.major ? '#fff' : '#aaa';
+            ctx.font = st.major ? 'bold 14px "MS Gothic"' : '12px "MS Gothic"';
+            
+            let deg = (st.angle * 180) % 360;
+            let offset = st.major ? 25 : 18; 
+            if (deg > 170 && deg < 190) offset += 5;
+            
+            let tx = cx + (r + offset) * Math.cos(a);
+            let ty = cy + (r + offset) * Math.sin(a);
+
+            if (deg > 10 && deg < 170) ctx.textAlign = "right";
+            else if (deg > 190 && deg < 350) ctx.textAlign = "left";
+            else ctx.textAlign = "center";
+
+            if (deg > 80 && deg < 100) ctx.textBaseline = "middle";
+            else if (deg > 260 && deg < 280) ctx.textBaseline = "middle";
+            else if (deg <= 90 || deg >= 270) ctx.textBaseline = "top";
+            else ctx.textBaseline = "bottom";
+            
+            ctx.fillText(st.name, tx, ty);
+        });
+
+        if (gameState === 1 || gameState === 2) {
+            let drawAngle = angle + Math.PI / 2;
+            trainX = cx + r * Math.cos(drawAngle);
+            trainY = cy + r * Math.sin(drawAngle);
+            flyAngle = drawAngle + Math.PI / 2;
+        }
+
+        if (gameState === 3 && trail.length > 1) {
+            ctx.strokeStyle = resultType === 'SUCCESS' ? 'rgba(255, 126, 0, 0.8)' : 'rgba(0, 123, 255, 0.8)';
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(trail[0].x, trail[0].y);
+            for (let i = 1; i < trail.length; i++) {
+                ctx.lineTo(trail[i].x, trail[i].y);
+            }
+            ctx.stroke();
+        }
+
+        if(gameState !== 4) {
+            ctx.save();
+            ctx.translate(trainX, trainY);
+            ctx.rotate(flyAngle);
+            
+            ctx.fillStyle = '#ccc';
+            ctx.fillRect(-16, -10, 32, 20);
+            
+            ctx.fillStyle = '#FF7E00';
+            ctx.fillRect(-16, -2, 32, 4);
+            
+            ctx.fillStyle = '#111';
+            ctx.fillRect(8, -8, 6, 16);
+            ctx.fillRect(-10, -8, 12, 4);
+            ctx.fillRect(-10, 4, 12, 4);
+            
+            ctx.restore();
+        }
+
+        if (gameState === 4) {
+            particles.forEach(p => {
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.life;
+                ctx.fillRect(p.x, p.y, 6, 6);
+            });
+            ctx.globalAlpha
