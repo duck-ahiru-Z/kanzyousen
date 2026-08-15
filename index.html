@@ -10,13 +10,16 @@
             margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
             background-color: #1a1a1a; 
             font-family: 'MS Gothic', 'Meiryo', sans-serif;
-            touch-action: none; user-select: none; -webkit-user-select: none;
+            /* スマホのブラウザ特有の挙動をCSSでも強力にブロック */
+            touch-action: none; 
+            user-select: none; 
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
         }
 
         #game-container { position: relative; width: 100%; height: 100%; }
         canvas { display: block; width: 100%; height: 100%; }
 
-        /* UIレイヤーはタッチを透過し、必要な要素だけタッチ可能にする */
         #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; z-index: 10;
@@ -25,7 +28,7 @@
         .screen {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             background: #fff; border: 4px solid #111; padding: 24px; text-align: center;
-            box-shadow: 8px 8px 0 #000; pointer-events: auto; /* ここはタッチ可能 */
+            box-shadow: 8px 8px 0 #000; pointer-events: auto; 
             min-width: 320px; width: 90%; max-width: 450px; z-index: 100;
         }
 
@@ -49,7 +52,6 @@
         
         button.btn-gray { background: #ccc; margin-top: 10px; font-size: 16px; padding: 10px 20px; }
 
-        /* HUD: 画面中央（円の中） */
         #hud {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             text-align: center; pointer-events: none; width: 80%;
@@ -66,7 +68,6 @@
             margin-bottom: 20px; border: 2px solid #FF7E00;
         }
 
-        /* ヒントボタンとモーダル */
         #btn-hint {
             position: absolute; top: 15px; right: 15px; width: auto; padding: 8px 16px;
             font-size: 16px; pointer-events: auto; z-index: 50; background: #fff; color: #111;
@@ -80,10 +81,8 @@
 <body>
 
 <div id="game-container">
-    <!-- ゲーム画面 -->
     <canvas id="gameCanvas"></canvas>
     
-    <!-- UI画面 -->
     <div id="ui-layer">
         <button id="btn-hint" class="hidden">💡ヒント</button>
 
@@ -132,7 +131,6 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    // UI要素の取得
     const startScreen = document.getElementById('start-screen');
     const resultScreen = document.getElementById('result-screen');
     const hintModal = document.getElementById('hint-modal');
@@ -148,7 +146,6 @@
     let width, height, cx, cy, r;
     let dpr = window.devicePixelRatio || 1;
 
-    // 画面リサイズ対応
     function resize() {
         width = window.innerWidth;
         height = window.innerHeight;
@@ -162,7 +159,6 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // 駅データ (angle: 0.0=下, 0.5=左, 1.0=上, 1.5=右)
     const stations = [
         { name: "天王寺", angle: 0.00, major: true },
         { name: "新今宮", angle: 0.08, major: false },
@@ -185,7 +181,6 @@
         { name: "寺田町", angle: 1.94, major: false }
     ];
 
-    // 分岐ポイントと、間違えた時の具体的な飛ばされ先（failDest）
     const branches = [
         { id: 'USJ', name: 'USJ・桜島方面', failDest: 'ユニバーサルシティ駅(USJ)', station: '西九条', targetAngle: 0.50, margin: 0.08 },
         { id: 'KYOTO', name: '京都・神戸方面', failDest: '京都・敦賀・はたまた播州赤穂', station: '大阪', targetAngle: 1.00, margin: 0.08 },
@@ -195,7 +190,7 @@
 
     let currentMission = null;
     let wrongDestination = null;
-    let gameState = 0; // 0: UI操作中, 1: 待機, 2: 走行, 3: 飛行, 4: 脱線爆発
+    let gameState = 0; 
     let angle = 0;
     let baseOmega = (2 * Math.PI) / 120;
     let currentOmega = baseOmega;
@@ -208,7 +203,6 @@
     let finalAccuracy = 0;
     let resultType = '';
 
-    // === ボタンのクリックイベント ===
     document.getElementById('btn-start').addEventListener('click', () => {
         startScreen.classList.add('hidden');
         resetGame();
@@ -221,13 +215,13 @@
 
     btnHint.addEventListener('click', () => {
         hintModal.classList.remove('hidden');
-        gameState = 0; // ゲームの進行をストップ
+        gameState = 0; 
     });
 
     document.getElementById('btn-close-hint').addEventListener('click', () => {
         hintModal.classList.add('hidden');
         if (!hud.classList.contains('hidden')) {
-            gameState = 1; // 待機状態に戻す
+            gameState = 1; 
         }
     });
 
@@ -251,32 +245,49 @@
         btnHint.classList.remove('hidden');
     }
 
-    // === ゲームの長押し・タッチイベント ===
+    // ブラウザ特有の長押しメニュー（コンテキストメニュー）を完全に無効化
+    window.addEventListener('contextmenu', e => {
+        e.preventDefault();
+    });
+
     function handlePressStart(e) {
-        // ボタンやUIパネルの上をタッチした場合は、電車の発車判定を無視する
+        // ボタンやパネルを触った時はゲーム操作とみなさない
         if (e.target.closest('button')) return;
         if (e.target.closest('.screen')) return; 
         if (!hintModal.classList.contains('hidden')) return;
+
+        // スマホでの画面スクロールやダブルタップ拡大などのデフォルト挙動をブロックする
+        if (e.cancelable) {
+            e.preventDefault();
+        }
 
         if (gameState !== 1 && gameState !== 2) return;
         
         isPressing = true;
         if (gameState === 1) {
             gameState = 2;
-            btnHint.classList.add('hidden'); // 走行中はヒントボタンを隠す
+            btnHint.classList.add('hidden'); 
         }
     }
 
     function handlePressEnd(e) {
         if (!isPressing) return;
         isPressing = false;
+        
+        if (e.cancelable) {
+            e.preventDefault();
+        }
+
         if (gameState === 2) releaseTrain();
     }
 
-    window.addEventListener('mousedown', handlePressStart);
+    // イベントリスナーのオプション {passive: false} は preventDefault() を効かせるために必須
+    window.addEventListener('mousedown', handlePressStart, {passive: false});
     window.addEventListener('touchstart', handlePressStart, {passive: false});
-    window.addEventListener('mouseup', handlePressEnd);
-    window.addEventListener('touchend', handlePressEnd);
+    window.addEventListener('mouseup', handlePressEnd, {passive: false});
+    window.addEventListener('touchend', handlePressEnd, {passive: false});
+    // 指が画面外に出た時やシステム側でキャンセルされた時の対策
+    window.addEventListener('touchcancel', handlePressEnd, {passive: false});
 
     function getNormalizedAngle(rad) {
         let a = (rad / Math.PI) % 2;
@@ -536,4 +547,11 @@
                 ctx.fillRect(p.x, p.y, 6, 6);
             });
             ctx.globalAlpha = 1.0;
-      
+        }
+    }
+
+    requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
